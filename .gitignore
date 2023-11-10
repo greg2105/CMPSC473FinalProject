@@ -1,0 +1,6 @@
+*.d
+*.o
+*.log
+*.swp
+channel
+channel_sanitize
