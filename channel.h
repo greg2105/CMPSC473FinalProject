@@ -25,9 +25,11 @@ typedef struct {
     // DO NOT REMOVE buffer (OR CHANGE ITS NAME) FROM THE STRUCT
     // YOU MUST USE buffer TO STORE YOUR BUFFERED CHANNEL MESSAGES
     buffer_t* buffer;
-
-    /* ADD ANY STRUCT ENTRIES YOU NEED HERE */
-    /* IMPLEMENT THIS */
+    int open;
+    sem_t* semaphore;
+    pthread_mutex_t mutex;
+    pthread_cond_t send;
+    pthread_cond_t recv;
 } chan_t;
 
 typedef struct {

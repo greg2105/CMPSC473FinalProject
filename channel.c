@@ -11,6 +11,11 @@ chan_t* channel_create(size_t size)
     buffer_t* buffer = buffer_create(size);
     chan_t* channel = (chan_t*) malloc(sizeof(chan_t));
     channel->buffer = buffer;
+    channel->semaphore = NULL;
+    channel->open = 1;
+    pthread_cond_init(&channel->recv, NULL);
+    pthread_cond_init(&channel->send, NULL);
+    pthread_mutex_init(&channel_object->mutex, NULL);
     
     return channel;
 }
@@ -25,9 +30,35 @@ chan_t* channel_create(size_t size)
 // OTHER_ERROR on encountering any other generic error of any sort
 enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
 {
+    pthread_mutex_lock(&channel->mutex);
+    //HANDLES THE CASE OF BLOCKING
     if (blocking) {
+        if(!(channel->open)){
+            pthread_mutex_unlock(&channel->mutex);
+            return CLOSED_ERROR;
+        }
+
+        while(buffer_capacity(channel->buffer) <= buffer_current_size(channel->buffer)){
+            pthread_cond_wait(&channel_send, &channel->mutex);
+        }
+
+        if(channel->open){
+            if(!buffer_add(channel->buffer, data)){
+                pthread_mutex_unlock(&channel->mutex);
+                return OTHER_ERROR;
+            }
+        }
+
+        if(channel->semaphore != NULL){
+            sem_post(channel->semaphore);
+        }
+
+        pthread_cond_signal(&channel->recv);
+        pthread_mutex_unlock(&channel->mutex);
         return SUCCESS;
-    } else {
+    }
+    //HANDLES THE CASE ON NON-BLOCKING
+    else {
         if (buffer_current_size(channel->buffer) < buffer_capacity(channel->buffer)) {
             if (buffer_add(data, channel->buffer)) {
                 return SUCCESS;
@@ -35,10 +66,11 @@ enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
                 return OTHER_ERROR;
             }
         } else {
-            return WOULDBLOCK;
+            //wait
+            return WOULDBLOCK; //i think should be swapped with other_error
         }
     }
-
+        //missing closed_error
     return OTHER_ERROR;
 }
 
@@ -52,8 +84,7 @@ enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
 // OTHER_ERROR on encountering any other generic error of any sort
 enum chan_status channel_receive(chan_t* channel, void** data, bool blocking)
 {
-    /* IMPLEMENT THIS */
-    return SUCCESS;
+   //implement
 }
 
 // Closes the channel and informs all the blocking send/receive/select calls to return with CLOSED_ERROR
