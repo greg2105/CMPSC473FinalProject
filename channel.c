@@ -4,8 +4,15 @@
 // A 0 size indicates an unbuffered channel, whereas a positive size indicates a buffered channel
 chan_t* channel_create(size_t size)
 {
-    /* IMPLEMENT THIS */
-    return NULL;
+    if (size == 0) {
+        return NULL; // unbuffered channels don't have to be supported
+    }
+
+    buffer_t* buffer = buffer_create(size);
+    chan_t* channel = (chan_t*) malloc(sizeof(chan_t));
+    channel->buffer = buffer;
+    
+    return channel;
 }
 
 // Writes data to the given channel
@@ -18,8 +25,21 @@ chan_t* channel_create(size_t size)
 // OTHER_ERROR on encountering any other generic error of any sort
 enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
 {
-    /* IMPLEMENT THIS */
-    return SUCCESS;
+    if (blocking) {
+        return SUCCESS;
+    } else {
+        if (buffer_current_size(channel->buffer) < buffer_capacity(channel->buffer)) {
+            if (buffer_add(data, channel->buffer)) {
+                return SUCCESS;
+            } else {
+                return OTHER_ERROR;
+            }
+        } else {
+            return WOULDBLOCK;
+        }
+    }
+
+    return OTHER_ERROR;
 }
 
 // Reads data from the given channel and stores it in the function’s input parameter, data (Note that it is a double pointer).
