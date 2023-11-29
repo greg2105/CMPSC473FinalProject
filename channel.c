@@ -15,7 +15,7 @@ chan_t* channel_create(size_t size)
     channel->open = 1;
     pthread_cond_init(&channel->recv, NULL);
     pthread_cond_init(&channel->send, NULL);
-    pthread_mutex_init(&channel_object->mutex, NULL);
+    pthread_mutex_init(&channel->mutex, NULL);
     
     return channel;
 }
@@ -31,13 +31,12 @@ chan_t* channel_create(size_t size)
 enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
 {
     pthread_mutex_lock(&channel->mutex);
-    //HANDLES THE CASE OF BLOCKING
-    if (blocking) {
-        if(!(channel->open)){
+    if(!(channel->open)){
             pthread_mutex_unlock(&channel->mutex);
             return CLOSED_ERROR;
-        }
-
+    }
+    //HANDLES THE CASE OF BLOCKING
+    if (blocking) {
         while(buffer_capacity(channel->buffer) <= buffer_current_size(channel->buffer)){
             pthread_cond_wait(&channel_send, &channel->mutex);
         }
@@ -52,26 +51,30 @@ enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
         if(channel->semaphore != NULL){
             sem_post(channel->semaphore);
         }
-
-        pthread_cond_signal(&channel->recv);
-        pthread_mutex_unlock(&channel->mutex);
-        return SUCCESS;
     }
     //HANDLES THE CASE ON NON-BLOCKING
     else {
-        if (buffer_current_size(channel->buffer) < buffer_capacity(channel->buffer)) {
-            if (buffer_add(data, channel->buffer)) {
-                return SUCCESS;
-            } else {
+        if(buffer_capacity(channel->buffer) <= buffer_current_size(channel->buffer)){
+            pthread_mutex_unlock(&channel->mutex);
+            return WOULDBLOCK;
+        }
+
+        if(channel->open){
+            if(!buffer_add(channel->buffer, data)){
+                pthread_mutex_unlock(&channel->mutex);
                 return OTHER_ERROR;
             }
-        } else {
-            //wait
-            return WOULDBLOCK; //i think should be swapped with other_error
         }
+
+        if(channel->semaphore != NULL){
+            sem_post(channel->semaphore);
+        }
+
     }
-        //missing closed_error
-    return OTHER_ERROR;
+
+    pthread_cond_signal(&channel->recv);
+    pthread_mutex_unlock(&channel->mutex);
+    return SUCCESS;
 }
 
 // Reads data from the given channel and stores it in the function’s input parameter, data (Note that it is a double pointer).
@@ -84,7 +87,55 @@ enum chan_status channel_send(chan_t* channel, void* data, bool blocking)
 // OTHER_ERROR on encountering any other generic error of any sort
 enum chan_status channel_receive(chan_t* channel, void** data, bool blocking)
 {
-   //implement
+    pthread_mutex_lock(&channel->mutex);
+    if(channel->open){
+        pthread_mutex_unlock(&channel->mutex);
+        return CLOSED_ERROR;
+    }
+
+    //HANDLES THE CASE OF BLOCKING
+    if (blocking) {
+        while(!buffer_current_size(channel->buffer)){
+            pthread_cond_wait(&channel_send, &channel->mutex);
+        }
+
+        if(channel->open){
+            *data = buffer_remove(channel->buffer);
+            if(data == NULL){
+                pthread_mutex_unlock(&channel->mutex);
+                return OTHER_ERROR;
+            }
+        }
+
+        if(channel->semaphore != NULL){
+            sem_post(channel->semaphore);
+        }
+    }
+    //HANDLES THE CASE ON NON-BLOCKING
+    else {
+        if(!buffer_current_size(channel->buffer)){
+            pthread_mutex_unlock(&channel->mutex);
+            return WOULDBLOCK;
+        }
+
+        if(channel->open){
+            *data = buffer_remove(channel->buffer);
+            if(data == NULL){
+                pthread_mutex_unlock(&channel->mutex);
+                return OTHER_ERROR;
+            }
+        }
+
+        if(channel->semaphore != NULL){
+            sem_post(channel->semaphore);
+        }
+
+    }
+
+    pthread_cond_signal(&channel->recv);
+    pthread_mutex_unlock(&channel->mutex);
+    return SUCCESS;
+
 }
 
 // Closes the channel and informs all the blocking send/receive/select calls to return with CLOSED_ERROR
