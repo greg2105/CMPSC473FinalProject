@@ -71,7 +71,7 @@ enum chan_status channel_send(chan_t *channel, void* data, bool blocking)
             }
         }
 
-        if(channel->semaphore != NULL){
+        if(channel->semaphore){
             sem_post(channel->semaphore);
         }
     }
@@ -130,7 +130,7 @@ enum chan_status channel_receive(chan_t* channel, void** data, bool blocking)
                 return OTHER_ERROR;
             }
         }
-        if(channel->semaphore != NULL){
+        if(channel->semaphore){
             sem_post(channel->semaphore);
         }
     }
@@ -202,6 +202,36 @@ enum chan_status channel_destroy(chan_t* channel)
 // Additionally, selected_index is set to the index of the channel that generated the error
 enum chan_status channel_select(size_t channel_count, select_t* channel_list, size_t* selected_index)
 {
-    //implement
-    return SUCCESS;
+    sem_t *semaphore = (sem_t*)malloc(sizeof(sem_t));
+    sem_init(semaphore, 1, 0);
+
+    for(int i = 0; i < channel_count; i++){
+        pthread_mutex_lock(&(channel_list[i].channel->mutex));
+        channel_list[i].channel->semaphore = semaphore;
+        pthread_mutex_unlock(&(channel_list[i].channel->mutex));
+    }
+
+    while(true){ //check if valid
+        for(int i = 0; i < channel_count; i++){
+            if(channel_list[i].is_send){
+                pthread_mutex_lock(&(channel_list[i].channel->mutex));
+                if(buffer_capacity(channel_list[i].channel->buffer) > buffer_current_size(channel_list[i].channel->buffer)){
+                    *selected_index = (size_t)i;
+                    pthread_mutex_unlock(&(channel_list[i].channel->mutex));
+                    return channel_send(channel_list[i].channel, &channel_list[i].data, true);
+                }
+            }
+            else{
+                pthread_mutex_lock(&(channel_list[i].channel->mutex));
+                if(buffer_current_size(channel_list[i].channel->buffer)){
+                    *selected_index = (size_t)i;
+                    pthread_mutex_unlock(&(channel_list[i].channel->mutex));
+                    return channel_receive(channel_list[i].channel, &channel_list[i].data, true);
+                }
+            }
+        }
+        sem_wait(semaphore);
+    }
+
+    return OTHER_ERROR;
 }
